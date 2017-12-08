@@ -30,7 +30,7 @@ def get_user(sock):
         if s == sock:
             return name
     return None
-    
+
 def send_msg(socket, message):
     msg = "\r" + message
     try:
@@ -67,7 +67,7 @@ def chat_server():
 
     if not os.path.exists("server"):
         os.makedirs("server")
-        
+
     if not os.path.isfile("server/key.pem"):
         # Generate server private key
         private_key = rsa.generate_private_key(
@@ -76,13 +76,19 @@ def chat_server():
             backend=default_backend()
         )
         with open("server/key.pem", "wb") as f:
-            
+
             # Generate server private key
             f.write(private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.TraditionalOpenSSL,
                 encryption_algorithm=serialization.BestAvailableEncryption(passphrase)
             ))
+            public = open("server/key.pub.pem", "wb")
+            public_key = private_key.public_key()
+            public.write(public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+             ))
     else:
         with open("server/key.pem", "rb") as f:
             private_key = load_pem_private_key(f.read(), passphrase, backend=default_backend())
@@ -94,7 +100,7 @@ def chat_server():
 
     # Add server socket object to the list of readable connecions
     socket_list.append(server_socket)
-    
+
     print("Chat server started on port %d"  % port)
 
     while True:
@@ -135,15 +141,15 @@ def chat_server():
                         # Remove broken socket
                         if sock in socket_list:
                             remove_user(sock)
-                            
+
                         # Connection broken
                         broadcast(server_socket, sock, "User %s disconnected\n" % user)
                 except ValueError:
                     user = get_user(sock)
                     broadcast(server_socket, sock, "User %s disconnected\n" % user)
                     continue
-                
+
     server_socket.close()
-    
+
 if __name__ == "__main__":
     sys.exit(chat_server())
