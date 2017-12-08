@@ -3,6 +3,13 @@
 import select
 import socket
 import sys
+import os
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+passphrase = b"EtienneLeGros1000"
 
 def prompt(username):
     sys.stdout.write("[%s] " % username)
@@ -18,8 +25,35 @@ def chat_client():
     username = sys.argv[3]
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(2)
+    s.settimeout(15)
 
+    private_key = None
+    public_key = None
+    if not os.path.isfile(".keys/mykey"):
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
+        private = open(".keys/mykey", "wb")
+        private.write(private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.BestAvailableEncryption(passphrase)
+        ))
+        if os.path.isfile(".keys/mykey.pub"):
+            os.remove(".keys/mykey.pub")
+        public = open(".keys/mykey.pub", "wb")
+        public_key = private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        public.write(public_key)
+    else:
+        public = open(".keys/mykey.pub", "rb")
+        private = open(".keys/mykey", "rb")
+        private_key = private.read()
+        public_key = public.read()
     # Connect to remote host
     try:
         s.connect((host, port))
@@ -29,13 +63,31 @@ def chat_client():
 
     s.send(username.encode("utf-8"))
     data = s.recv(4096)
-    if not data == b'OK':
+    if not data[1:] == b'OK':
         if data[1:] == b'USERNAME_TAKEN':
+            s.send(str.encode("NOK"))
             print("%s username already taken" % username)
             sys.exit()
-    print("Connected to chat with username %s" % username)
-    prompt(username)
+        else:
+            s.send(str.encode("NOK"))
+            print("ERROR")
+            sys.exit()
+    s.send(str.encode("OK"))
+    if not os.path.exists(".keys"):
+        os.makedirs(".keys")
+    data = s.recv(4096)
+    # write server public key in file
+    if os.path.isfile(".keys/server.pub"):
+        os.remove(".keys/server.pub")
+    server_pkey = data
+    server_file_pkey = open(".keys/server.pub", "wb")
+    server_file_pkey.write(server_pkey)
+
+    #send user public key
+    s.send(public_key)
     
+
+    prompt(username)
     while True:
         socket_list = [sys.stdin, s]
 

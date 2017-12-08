@@ -67,7 +67,8 @@ def chat_server():
 
     if not os.path.exists("server"):
         os.makedirs("server")
-
+    if not os.path.exists("server/clientskeys"):
+        os.makedirs("server/clientskeys")
     if not os.path.isfile("server/key.pem"):
         # Generate server private key
         private_key = rsa.generate_private_key(
@@ -120,6 +121,18 @@ def chat_server():
                         send_msg(sockfd, "OK")
                         socket_list.append(sockfd)
                         users[data] = sockfd
+                        response = sockfd.recv(4096)
+                        if (response.decode() == "OK"):
+                            # Sending server public key
+                            pkey = open("server/key.pub.pem", "rb")
+                            keymsg = pkey.read();
+                            sockfd.send(keymsg)
+                            # Receiving client public key
+                            response = sockfd.recv(4096)
+                            username = get_user(sockfd)
+                            clientkey = open("server/clientskeys/" + username + ".pub", "wb")
+                            clientkey.write(response)
+
                         broadcast(server_socket, sockfd, "%s connected\n" % data)
 
             # Message from client, not new connecion
