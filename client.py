@@ -29,29 +29,33 @@ def chat_client():
 
     private_key = None
     public_key = None
-    if not os.path.isfile(".keys/mykey"):
+
+    key_path = username + "/.keys/"
+    os.makedirs(os.path.dirname(key_path), exist_ok=True)
+    
+    if not os.path.isfile(key_path + "key.pub"):
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=2048,
             backend=default_backend()
         )
-        private = open(".keys/mykey", "wb")
+        private = open(key_path + "key", "wb")
         private.write(private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.TraditionalOpenSSL,
             encryption_algorithm=serialization.BestAvailableEncryption(passphrase)
         ))
-        if os.path.isfile(".keys/mykey.pub"):
-            os.remove(".keys/mykey.pub")
-        public = open(".keys/mykey.pub", "wb")
+        if os.path.isfile(key_path + "key.pub"):
+            os.remove(key_path + "key.pub")
+        public = open(key_path + "key.pub", "wb")
         public_key = private_key.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
         public.write(public_key)
     else:
-        public = open(".keys/mykey.pub", "rb")
-        private = open(".keys/mykey", "rb")
+        public = open(key_path + "key.pub", "rb")
+        private = open(key_path + "key", "rb")
         private_key = private.read()
         public_key = public.read()
     # Connect to remote host
@@ -73,14 +77,14 @@ def chat_client():
             print("ERROR")
             sys.exit()
     s.send(str.encode("OK"))
-    if not os.path.exists(".keys"):
-        os.makedirs(".keys")
+    if not os.path.exists(key_path):
+        os.makedirs(key_path)
     data = s.recv(4096)
     # write server public key in file
-    if os.path.isfile(".keys/server.pub"):
-        os.remove(".keys/server.pub")
+    if os.path.isfile(key_path + " server.pub"):
+        os.remove(key_path + "server.pub")
     server_pkey = data
-    server_file_pkey = open(".keys/server.pub", "wb")
+    server_file_pkey = open(key_path + "server.pub", "wb")
     server_file_pkey.write(server_pkey)
 
     #send user public key
