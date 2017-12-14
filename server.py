@@ -4,10 +4,15 @@ import os
 import select
 import socket
 import sys
+import base64
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 host = ''
@@ -17,6 +22,25 @@ recv_buffer = 4096
 passphrase = b"EtienneLeGros1000"
 private_key = None
 users = {}
+users_ciphers = None
+
+def create_sym(socket, user):
+    rand = os.urandom(32)
+    iv = os.urandom(16)
+    sym_key = algorithms.AES(rand)
+    cipher = Cipher(sym_key, modes.CBC(iv), backend=default_backend())
+    if users_ciphers == None :
+        users_ciphers = { user : cipher }
+    else :
+        users_ciphers[user] = cipher
+    msg = sym_key.key + ":" + iv
+    send_msg_crypt(socket, msg)
+
+def my_encode(msg):
+    return base64.b64encode(bytes(msg, "utf-8"))
+
+def my_decode(msg):
+    return base64.b64decode(msg).decode("utf-8", "ignore")
 
 def remove_user(sock):
     for name, s in users.items():
@@ -34,8 +58,36 @@ def get_user(sock):
 def send_msg(socket, message):
     msg = "\r" + message
     try:
-        socket.send(msg.encode("utf-8"))
+        socket.send(my_encode(msg))
     except:
+        # Broken socket connection
+        socket.close()
+        # Broken socket, remove it
+        if socket in socket_list:
+            remove_user(socket)
+
+def send_msg_crypt(socket, message):
+    msg = "\r" + message
+    try:
+        user = get_user(socket)
+        usr_key_file = open("server/clientskeys/" + user + ".pub", "rb")
+        usr_key = serialization.load_pem_public_key(
+            usr_key_file.read(),
+            backend=default_backend()
+        )
+        encrypt = usr_key.encrypt(
+            my_encode(msg),
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA1()),
+                algorithm=hashes.SHA1(),
+                label=None
+            )
+        )
+        usr_key_file.close()
+        socket.send(encrypt)
+    except:
+        print(sys.exc_info[0])
+        print("Error in crypt")
         # Broken socket connection
         socket.close()
         # Broken socket, remove it
@@ -44,27 +96,28 @@ def send_msg(socket, message):
 
 # Broadcast chat messages to all connected clients
 def broadcast(server_socket, sock, message):
+    print("Broadcast")
     print(message[:-1])
     for socket in socket_list:
         # Send message only to peer
         if socket != server_socket and socket != sock:
-            send_msg(socket, message)
+            send_msg_crypt(socket, message)
 
 # Basic cmd parsing
 def cmd(server_socket, sock, message):
     cmd = message.split(' ')
     if cmd[0] == 'msg':
-        send_msg(sock, "Msg not implemented\n")
+        send_msg_crypt(sock, "Msg not implemented\n")
     elif cmd[0] == 'users':
         msg = "Users:\n"
         for u in users:
             msg += "\t" + u + "\n"
-        send_msg(sock, msg)
+        send_msg_crypt(sock, msg)
     else:
-        send_msg(sock, "Cmd unknown\n")
+        send_msg_crypt(sock, "Cmd unknown\n")
 
 def chat_server():
-
+    private_key = None
     if not os.path.exists("server"):
         os.makedirs("server")
     if not os.path.exists("server/clientskeys"):
@@ -113,7 +166,8 @@ def chat_server():
             # New connection request received
             if sock == server_socket:
                 sockfd, addr = server_socket.accept()
-                data = sockfd.recv(recv_buffer).decode()
+                data = sockfd.recv(recv_buffer)
+                data = my_decode(data)
                 if data:
                     if users.get(data):
                         send_msg(sockfd, "USERNAME_TAKEN")
@@ -122,7 +176,7 @@ def chat_server():
                         socket_list.append(sockfd)
                         users[data] = sockfd
                         response = sockfd.recv(4096)
-                        if (response.decode() == "OK"):
+                        if (my_decode(response) == "OK"):
                             # Sending server public key
                             pkey = open("server/key.pub.pem", "rb")
                             keymsg = pkey.read();
@@ -130,9 +184,13 @@ def chat_server():
                             # Receiving client public key
                             response = sockfd.recv(4096)
                             username = get_user(sockfd)
-                            clientkey = open("server/clientskeys/" + username + ".pub", "wb")
+                            keyname = "server/clientskeys/" + username + ".pub"
+                            if (os.path.exists(keyname)):
+                                os.remove(keyname)
+                            clientkey = open(keyname, "wb")
                             clientkey.write(response)
-
+                            clientkey.close()
+                        #create_sym(socket, username)
                         broadcast(server_socket, sockfd, "%s connected\n" % data)
 
             # Message from client, not new connecion
@@ -140,7 +198,16 @@ def chat_server():
                 # Process data received from client
                 try:
                     # Receiving data from socket
-                    data = sock.recv(recv_buffer).decode()
+                    data = sock.recv(recv_buffer)
+                    data = private_key.decrypt(
+                            data,
+                            padding.OAEP(
+                                mgf=padding.MGF1(algorithm=hashes.SHA1()),
+                                algorithm=hashes.SHA1(),
+                                label=None
+                            )
+                    )
+                    data = my_decode(data)
                     if data:
                         # Socket not empty
                         if data[0] == '/':
@@ -159,7 +226,9 @@ def chat_server():
                         broadcast(server_socket, sock, "User %s disconnected\n" % user)
                 except ValueError:
                     user = get_user(sock)
-                    broadcast(server_socket, sock, "User %s disconnected\n" % user)
+                    if sock in socket_list:
+                        remove_user(sock)
+                    broadcast(server_socket, sock, "Error : User %s disconnected\n" % user)
                     continue
 
     server_socket.close()
