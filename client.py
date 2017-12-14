@@ -95,10 +95,10 @@ def chat_client():
         os.makedirs(".keys")
     data = s.recv(4096)
     # write server public key in file
-    if os.path.isfile(".keys/server.pub"):
-        os.remove(".keys/server.pub")
+    if os.path.isfile(".keys/" + " server.pub"):
+        os.remove(".keys/" + "server.pub")
     server_pkey = data
-    server_file_pkey = open(".keys/server.pub", "wb")
+    server_file_pkey = open(".keys/" + "server.pub", "wb")
     server_file_pkey.write(server_pkey)
     public_key_serv = serialization.load_pem_public_key(
             server_pkey,
