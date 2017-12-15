@@ -29,7 +29,6 @@ users_ciphers = {}
 def create_sym(socket, user):
     sym_key = Fernet.generate_key()
     users_ciphers[user] = Fernet(sym_key)
-    print(sym_key)
     send_msg_crypt_asym(socket, str(sym_key, "utf-8"))
 
 def my_encode(msg):
@@ -66,10 +65,10 @@ def send_msg_crypt(socket, message):
     msg = "\r" + message
     try:
         user = get_user(socket)
-        msgencrypt = users_ciphers[user].encrypt(my_encode(msg))
+        encoded = my_encode(msg)
+        msgencrypt = users_ciphers[user].encrypt(encoded)
         socket.send(msgencrypt)
     except:
-        print("AH!")
         socket.close()
         # Broken socket, remove it
         if socket in socket_list:
@@ -209,9 +208,9 @@ def chat_server():
                     # Receiving data from socket
                     data = sock.recv(recv_buffer)
                     user = get_user(sock)
-                    data = users_ciphers[user].decrypt(data)
-                    data = my_decode(data)
                     if data:
+                        data = users_ciphers[user].decrypt(data)
+                        data = my_decode(data)
                         # Socket not empty
                         if data[0] == '/':
                             cmd(server_socket, sock, data[1:-1])

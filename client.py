@@ -121,7 +121,6 @@ def chat_client():
     key = my_decode(data)
     key = key[1:]
     key = bytes(key, "utf-8")
-    print(key)
     cipher = Fernet(key)
 
     prompt(username)
@@ -135,17 +134,18 @@ def chat_client():
             if sock == s:
                 # Receiving message from server
                 data = sock.recv(4096)
-                cipher.decrypt(data)
-                data = my_decode(data)
                 if not data:
                     print("\nDisconnected from server")
                     sys.exit()
                 else:
+                    data = cipher.decrypt(data)
+                    data = my_decode(data)
                     sys.stdout.write("\r" + ' ' * (len(username) + 2) + data)
                     prompt(username)
             else:
                 msg = sys.stdin.readline()
-                msgencrypt = cipher.encrypt(my_encode(msg))
+                msg = my_encode(msg)
+                msgencrypt = cipher.encrypt(msg)
                 s.send(msgencrypt)
                 prompt(username)
 
