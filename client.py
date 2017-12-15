@@ -12,6 +12,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.fernet import Fernet
 
 passphrase = b"EtienneLeGros1000"
 private_key = None
@@ -107,6 +109,21 @@ def chat_client():
     #send user public key
     s.send(public_key_bytes)
 
+    data = s.recv(4096)
+    data = private_key.decrypt(
+        data,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA1()),
+            algorithm=hashes.SHA1(),
+            label=None
+        )
+    )
+    key = my_decode(data)
+    key = key[1:]
+    key = bytes(key, "utf-8")
+    print(key)
+    cipher = Fernet(key)
+
     prompt(username)
     while True:
         socket_list = [sys.stdin, s]
@@ -118,31 +135,17 @@ def chat_client():
             if sock == s:
                 # Receiving message from server
                 data = sock.recv(4096)
-                data = private_key.decrypt(
-                        data,
-                        padding.OAEP(
-                        mgf=padding.MGF1(algorithm=hashes.SHA1()),
-                        algorithm=hashes.SHA1(),
-                        label=None
-                    )
-                )
-                if not my_decode(data):
+                cipher.decrypt(data)
+                data = my_decode(data)
+                if not data:
                     print("\nDisconnected from server")
                     sys.exit()
                 else:
-                    data = my_decode(data)
                     sys.stdout.write("\r" + ' ' * (len(username) + 2) + data)
                     prompt(username)
             else:
                 msg = sys.stdin.readline()
-                msgencrypt = public_key_serv.encrypt(
-                    my_encode(msg),
-                    padding.OAEP(
-                        mgf=padding.MGF1(algorithm=hashes.SHA1()),
-                        algorithm=hashes.SHA1(),
-                        label=None
-                    )
-                )
+                msgencrypt = cipher.encrypt(my_encode(msg))
                 s.send(msgencrypt)
                 prompt(username)
 

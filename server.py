@@ -5,6 +5,7 @@ import select
 import socket
 import sys
 import base64
+import json
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -14,6 +15,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from cryptography.fernet import Fernet
 
 host = ''
 port = 9009
@@ -22,19 +24,13 @@ recv_buffer = 4096
 passphrase = b"EtienneLeGros1000"
 private_key = None
 users = {}
-users_ciphers = None
+users_ciphers = {}
 
 def create_sym(socket, user):
-    rand = os.urandom(32)
-    iv = os.urandom(16)
-    sym_key = algorithms.AES(rand)
-    cipher = Cipher(sym_key, modes.CBC(iv), backend=default_backend())
-    if users_ciphers == None :
-        users_ciphers = { user : cipher }
-    else :
-        users_ciphers[user] = cipher
-    msg = sym_key.key + ":" + iv
-    send_msg_crypt(socket, msg)
+    sym_key = Fernet.generate_key()
+    users_ciphers[user] = Fernet(sym_key)
+    print(sym_key)
+    send_msg_crypt_asym(socket, str(sym_key, "utf-8"))
 
 def my_encode(msg):
     return base64.b64encode(bytes(msg, "utf-8"))
@@ -70,6 +66,20 @@ def send_msg_crypt(socket, message):
     msg = "\r" + message
     try:
         user = get_user(socket)
+        msgencrypt = users_ciphers[user].encrypt(my_encode(msg))
+        socket.send(msgencrypt)
+    except:
+        print("AH!")
+        socket.close()
+        # Broken socket, remove it
+        if socket in socket_list:
+            remove_user(socket)
+
+
+def send_msg_crypt_asym(socket, message):
+    msg = "\r" + message
+    try:
+        user = get_user(socket)
         usr_key_file = open("server/clientskeys/" + user + ".pub", "rb")
         usr_key = serialization.load_pem_public_key(
             usr_key_file.read(),
@@ -96,7 +106,6 @@ def send_msg_crypt(socket, message):
 
 # Broadcast chat messages to all connected clients
 def broadcast(server_socket, sock, message):
-    print("Broadcast")
     print(message[:-1])
     for socket in socket_list:
         # Send message only to peer
@@ -190,7 +199,7 @@ def chat_server():
                             clientkey = open(keyname, "wb")
                             clientkey.write(response)
                             clientkey.close()
-                        #create_sym(socket, username)
+                        create_sym(sockfd, username)
                         broadcast(server_socket, sockfd, "%s connected\n" % data)
 
             # Message from client, not new connecion
@@ -199,24 +208,16 @@ def chat_server():
                 try:
                     # Receiving data from socket
                     data = sock.recv(recv_buffer)
-                    data = private_key.decrypt(
-                            data,
-                            padding.OAEP(
-                                mgf=padding.MGF1(algorithm=hashes.SHA1()),
-                                algorithm=hashes.SHA1(),
-                                label=None
-                            )
-                    )
+                    user = get_user(sock)
+                    data = users_ciphers[user].decrypt(data)
                     data = my_decode(data)
                     if data:
                         # Socket not empty
                         if data[0] == '/':
                             cmd(server_socket, sock, data[1:-1])
                         else:
-                            user = get_user(sock)
                             broadcast(server_socket, sock, "[" + user + "] " + data)
                     else:
-                        user = get_user(sock)
 
                         # Remove broken socket
                         if sock in socket_list:
